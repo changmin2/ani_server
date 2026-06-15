@@ -1,4 +1,8 @@
 from fastapi import FastAPI, UploadFile, File, Form
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
+import base64
+
 from pydantic import BaseModel
 
 from translator import translate
@@ -119,16 +123,94 @@ async def translate_file(
         if "path" in locals() and os.path.exists(path):
             os.remove(path)
 
+
+
+def make_translated_image(contents: bytes, texts: list, lang: str):
+    image = Image.open(BytesIO(contents)).convert("RGB")
+    draw = ImageDraw.Draw(image)
+
+    try:
+        font = ImageFont.truetype("Arial Unicode.ttf", 18)
+    except:
+        font = ImageFont.load_default()
+
+    for item in texts:
+        translated = item.get("translations", {}).get(lang, "")
+        if not translated:
+            continue
+
+        x = item.get("x", 0)
+        y = item.get("y", 0)
+        w = item.get("width", 120)
+        h = item.get("height", 24)
+
+        draw.rectangle(
+            [x, y, x + w, y + h],
+            fill="white"
+        )
+
+        draw.text(
+            (x, y),
+            translated,
+            fill="black",
+            font=font
+        )
+
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    return f"data:image/png;base64,{encoded}"
+
+
 @app.post("/ocr/image")
-async def ocr_image(file: UploadFile = File(...)):
+async def ocr_image(
+    file: UploadFile = File(...),
+    target_languages: str = Form(...)
+):
     try:
         contents = await file.read()
 
         texts = extract_ocr_texts(contents)
 
+        languages = [
+            lang.strip()
+            for lang in target_languages.split(",")
+            if lang.strip()
+        ]
+
+        translated_texts = []
+
+        for item in texts:
+            original_text = item.get("text", "")
+            translations = {}
+
+            for lang in languages:
+                if original_text.strip():
+                    translated = translate(original_text, lang)
+                else:
+                    translated = ""
+
+                translations[lang] = translated
+
+            translated_texts.append({
+                **item,
+                "translations": translations
+            })
+
+        translated_images = {}
+
+        for lang in languages:
+            translated_images[lang] = make_translated_image(
+                contents,
+                translated_texts,
+                lang
+            )
+
         return {
             "file_name": file.filename,
-            "texts": texts
+            "texts": translated_texts,
+            "translated_images": translated_images
         }
 
     except Exception as e:

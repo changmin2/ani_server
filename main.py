@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any
 import os
 from fastapi.middleware.cors import CORSMiddleware
+from ocr_service import extract_ocr_texts
 app = FastAPI()
 
 app.add_middleware(
@@ -117,6 +118,25 @@ async def translate_file(
     finally:
         if "path" in locals() and os.path.exists(path):
             os.remove(path)
+
+@app.post("/ocr/image")
+async def ocr_image(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+
+        texts = extract_ocr_texts(contents)
+
+        return {
+            "file_name": file.filename,
+            "texts": texts
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "error": str(e)
+        }
 
 
 if __name__ == "__main__":

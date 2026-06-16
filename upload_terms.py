@@ -1,15 +1,18 @@
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
+from dotenv import load_dotenv
 
-endpoint = "https://anisearch.search.windows.net"
-index_name = "finance"
-key = "wcGA1IyGejGBMN7oAVD7OYekmBikhu6TjZGZz4eQljAzSeBbelRU"
+import os
 
-client = SearchClient(
-    endpoint=endpoint,
-    index_name=index_name,
-    credential=AzureKeyCredential(key)
-)
+load_dotenv()
+
+
+def get_required_env(name):
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"{name} is not set in .env")
+    return value
+
 
 documents = [
     {
@@ -32,6 +35,19 @@ documents = [
     }
 ]
 
-result = client.upload_documents(documents)
 
-print(result)
+def upload_documents():
+    client = SearchClient(
+        endpoint=get_required_env("AZURE_SEARCH_ENDPOINT"),
+        index_name=get_required_env("AZURE_SEARCH_INDEX"),
+        credential=AzureKeyCredential(
+            get_required_env("AZURE_SEARCH_KEY")
+        )
+    )
+
+    return client.upload_documents(documents)
+
+
+if __name__ == "__main__":
+    result = upload_documents()
+    print(result)

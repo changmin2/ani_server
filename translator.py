@@ -5,13 +5,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-KEY = os.getenv("AZURE_TRANSLATOR_KEY")
-ENDPOINT = os.getenv("AZURE_TRANSLATOR_ENDPOINT")
-REGION = os.getenv("AZURE_TRANSLATOR_REGION")
+
+def get_required_env(name):
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"{name} is not set in .env")
+    return value
 
 
 def translate(text, target_lang):
-    url = f"{ENDPOINT}/translate"
+    url = f"{get_required_env('AZURE_TRANSLATOR_ENDPOINT')}/translate"
 
     params = {
         "api-version": "3.0",
@@ -19,8 +22,8 @@ def translate(text, target_lang):
     }
 
     headers = {
-        "Ocp-Apim-Subscription-Key": KEY,
-        "Ocp-Apim-Subscription-Region": REGION,
+        "Ocp-Apim-Subscription-Key": get_required_env("AZURE_TRANSLATOR_KEY"),
+        "Ocp-Apim-Subscription-Region": get_required_env("AZURE_TRANSLATOR_REGION"),
         "Content-Type": "application/json",
         "X-ClientTraceId": str(uuid.uuid4())
     }
@@ -31,7 +34,8 @@ def translate(text, target_lang):
         url,
         params=params,
         headers=headers,
-        json=body
+        json=body,
+        timeout=10
     )
 
     response.raise_for_status()

@@ -1,14 +1,25 @@
 import os
+from functools import lru_cache
+
 from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
 
 
-client = OpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    base_url=os.getenv("AZURE_OPENAI_ENDPOINT").rstrip("/")
-)
+def get_required_env(name):
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"{name} is not set in .env")
+    return value
+
+
+@lru_cache(maxsize=1)
+def get_openai_client():
+    return OpenAI(
+        api_key=get_required_env("AZURE_OPENAI_API_KEY"),
+        base_url=get_required_env("AZURE_OPENAI_ENDPOINT").rstrip("/")
+    )
 
 
 def improve_translation(original_text, machine_translation, glossary_terms, target_lang):
@@ -33,8 +44,8 @@ Machine translation:
 
 Return only final translation.
 """
-    response = client.chat.completions.create(
-        model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+    response = get_openai_client().chat.completions.create(
+        model=get_required_env("AZURE_OPENAI_DEPLOYMENT"),
         messages=[
             {"role": "user", "content": prompt}
         ]

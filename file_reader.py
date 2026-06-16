@@ -25,7 +25,7 @@ def extract_text(file_path):
             except UnicodeDecodeError:
                 continue
 
-        raise Exception("읽을 수 없는 TXT 파일입니다.")
+        raise ValueError("읽을 수 없는 TXT 파일입니다.")
 
     # DOCX
     elif lower_path.endswith(".docx"):
@@ -63,6 +63,6 @@ def extract_text(file_path):
 
         return text
 
-    raise Exception(
+    raise ValueError(
         "지원하지 않는 파일 형식입니다. (txt, pdf, docx, png, jpg, jpeg)"
     )

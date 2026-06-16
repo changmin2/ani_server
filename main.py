@@ -1,7 +1,8 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import base64
+import tempfile
 
 from pydantic import BaseModel
 
@@ -10,8 +11,7 @@ from file_reader import extract_text
 
 from search_service import search_finance_terms
 from openai_service import improve_translation
-from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List
 import os
 from fastapi.middleware.cors import CORSMiddleware
 from ocr_service import extract_ocr_texts
@@ -34,6 +34,9 @@ class TranslateRequest(BaseModel):
 @app.post("/translate/text")
 def translate_text(req: TranslateRequest):
     try:
+        if not req.target_languages:
+            raise ValueError("target_languages must not be empty.")
+
         translations = {}
 
         glossary_terms = search_finance_terms(req.text)
@@ -58,12 +61,13 @@ def translate_text(req: TranslateRequest):
             "translations": translations
         }
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return {
-            "error": str(e)
-        }
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/translate/file")
@@ -73,11 +77,15 @@ async def translate_file(
     source: str = Form(...),
 ):
     try:
-        contents = await file.read()
-        path = f"temp_{file.filename}"
+        if not target_languages:
+            raise ValueError("target_languages must not be empty.")
 
-        with open(path, "wb") as f:
-            f.write(contents)
+        contents = await file.read()
+        _, suffix = os.path.splitext(file.filename or "")
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            path = tmp.name
+            tmp.write(contents)
 
         # 파일 텍스트 추출
         text = extract_text(path)
@@ -112,12 +120,13 @@ async def translate_file(
             "translations": translations,
         }
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return {
-            "error": str(e)
-        }
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     finally:
         if "path" in locals() and os.path.exists(path):
@@ -179,6 +188,9 @@ async def ocr_image(
             if lang.strip()
         ]
 
+        if not languages:
+            raise ValueError("target_languages must not be empty.")
+
         translated_texts = []
 
         for item in texts:
@@ -213,12 +225,13 @@ async def ocr_image(
             "translated_images": translated_images
         }
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return {
-            "error": str(e)
-        }
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 if __name__ == "__main__":

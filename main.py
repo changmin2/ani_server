@@ -1,17 +1,16 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from PIL import Image, ImageDraw, ImageFont
-from io import BytesIO
-import base64
 import tempfile
 
 from pydantic import BaseModel
 
-from translator import translate
 from file_reader import extract_text
 
-from search_service import search_finance_terms
-from openai_service import improve_translation
-from typing import List
+from search_service import search_documents_hybrid
+from openai_service import (
+    get_document_embedding,
+    analyze_document_info
+)
+from typing import Optional
 import os
 from fastapi.middleware.cors import CORSMiddleware
 from ocr_service import extract_ocr_texts
@@ -25,41 +24,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class TranslateRequest(BaseModel):
-    text: str
-    target_languages: List[str]
-    source: str
+class DocumentAnalyzeTextRequest(BaseModel):
+    text: Optional[str] = None
+    query: Optional[str] = None
+    top: int = 5
 
 
-@app.post("/translate/text")
-def translate_text(req: TranslateRequest):
+def analyze_document_text(text: str, top: int):
+    text = text.strip()
+
+    if not text:
+        raise ValueError("text must not be empty.")
+
+    if top < 1 or top > 20:
+        raise ValueError("top must be between 1 and 20.")
+
+    query_vector = get_document_embedding(text)
+
+    retrieved_documents = search_documents_hybrid(
+        query=text,
+        query_vector=query_vector,
+        top=top
+    )
+
+    analysis = analyze_document_info(
+        query=text,
+        retrieved_documents=retrieved_documents
+    )
+
+    return {
+        "text": text,
+        "analysis": analysis,
+        "retrieved_documents": retrieved_documents
+    }
+
+
+def is_image_file(filename: str):
+    return filename.lower().endswith((".png", ".jpg", ".jpeg"))
+
+
+def extract_text_from_image_bytes(contents: bytes):
+    ocr_items = extract_ocr_texts(contents)
+
+    return "\n".join(
+        item.get("text", "")
+        for item in ocr_items
+        if item.get("text", "").strip()
+    )
+
+
+@app.post("/documents/analyze/text")
+def analyze_document_from_text(req: DocumentAnalyzeTextRequest):
     try:
-        if not req.target_languages:
-            raise ValueError("target_languages must not be empty.")
+        text = req.text if req.text is not None else req.query
 
-        translations = {}
+        if text is None:
+            raise ValueError("text must not be empty.")
 
-        glossary_terms = search_finance_terms(req.text)
-
-        for lang in req.target_languages:
-            machine_translation = translate(req.text, lang)
-
-            final_translation = improve_translation(
-                req.text,
-                machine_translation,
-                glossary_terms,
-                lang
-            )
-
-            translations[lang] = {
-                "machine_translation": machine_translation,
-                "glossary": glossary_terms,
-                "final_translation": final_translation
-            }
-
-        return {
-            "translations": translations
-        }
+        return analyze_document_text(text, req.top)
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -70,54 +92,37 @@ def translate_text(req: TranslateRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.post("/translate/file")
-async def translate_file(
+@app.post("/documents/analyze/file")
+async def analyze_document_from_file(
     file: UploadFile = File(...),
-    target_languages: List[str] = Form(...),
-    source: str = Form(...),
+    top: int = Form(5)
 ):
     try:
-        if not target_languages:
-            raise ValueError("target_languages must not be empty.")
-
         contents = await file.read()
-        _, suffix = os.path.splitext(file.filename or "")
+        filename = file.filename or ""
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            path = tmp.name
-            tmp.write(contents)
+        if is_image_file(filename):
+            text = extract_text_from_image_bytes(contents)
+            extract_method = "azure_vision_ocr"
+        else:
+            _, suffix = os.path.splitext(filename)
 
-        # 파일 텍스트 추출
-        text = extract_text(path)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                path = tmp.name
+                tmp.write(contents)
 
-        # 금융 용어 검색은 원문 기준이라 한 번만
-        glossary_terms = search_finance_terms(text)
+            text = extract_text(path)
+            extract_method = "file_text_extraction"
 
-        translations = {}
+        if not text.strip():
+            raise ValueError("file text could not be extracted.")
 
-        for lang in target_languages:
-            # 1차 번역
-            machine_translation = translate(text, lang)
-
-            # GPT 보정
-            final_translation = improve_translation(
-                text,
-                machine_translation,
-                glossary_terms,
-                lang
-            )
-
-            translations[lang] = {
-                "machine_translation": machine_translation,
-                "glossary": glossary_terms,
-                "final_translation": final_translation,
-            }
+        result = analyze_document_text(text, top)
 
         return {
-            "file_name": file.filename,
-            "source": source,
-            "original_text": text,
-            "translations": translations,
+            "file_name": filename,
+            "extract_method": extract_method,
+            **result
         }
 
     except ValueError as e:
@@ -131,107 +136,6 @@ async def translate_file(
     finally:
         if "path" in locals() and os.path.exists(path):
             os.remove(path)
-
-
-
-def make_translated_image(contents: bytes, texts: list, lang: str):
-    image = Image.open(BytesIO(contents)).convert("RGB")
-    draw = ImageDraw.Draw(image)
-
-    try:
-        font = ImageFont.truetype("Arial Unicode.ttf", 18)
-    except:
-        font = ImageFont.load_default()
-
-    for item in texts:
-        translated = item.get("translations", {}).get(lang, "")
-        if not translated:
-            continue
-
-        x = item.get("x", 0)
-        y = item.get("y", 0)
-        w = item.get("width", 120)
-        h = item.get("height", 24)
-
-        draw.rectangle(
-            [x, y, x + w, y + h],
-            fill="white"
-        )
-
-        draw.text(
-            (x, y),
-            translated,
-            fill="black",
-            font=font
-        )
-
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-    return f"data:image/png;base64,{encoded}"
-
-
-@app.post("/ocr/image")
-async def ocr_image(
-    file: UploadFile = File(...),
-    target_languages: str = Form(...)
-):
-    try:
-        contents = await file.read()
-
-        texts = extract_ocr_texts(contents)
-
-        languages = [
-            lang.strip()
-            for lang in target_languages.split(",")
-            if lang.strip()
-        ]
-
-        if not languages:
-            raise ValueError("target_languages must not be empty.")
-
-        translated_texts = []
-
-        for item in texts:
-            original_text = item.get("text", "")
-            translations = {}
-
-            for lang in languages:
-                if original_text.strip():
-                    translated = translate(original_text, lang)
-                else:
-                    translated = ""
-
-                translations[lang] = translated
-
-            translated_texts.append({
-                **item,
-                "translations": translations
-            })
-
-        translated_images = {}
-
-        for lang in languages:
-            translated_images[lang] = make_translated_image(
-                contents,
-                translated_texts,
-                lang
-            )
-
-        return {
-            "file_name": file.filename,
-            "texts": translated_texts,
-            "translated_images": translated_images
-        }
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 if __name__ == "__main__":

@@ -1,0 +1,212 @@
+[
+  {
+    "id": "product_001",
+    "title": "정기예금 상품설명서",
+    "category": "상품설명서",
+    "content": "기본금리 연 3.20%, 가입기간 12개월, 우대금리 최대 0.30%p 제공, 중도해지 시 약정금리 미적용",
+    "source_file": "deposit.pdf"
+  },
+  {
+    "id": "product_002",
+    "title": "자유적립식 적금 상품설명서",
+    "category": "상품설명서",
+    "content": "매월 자유롭게 납입 가능한 적금 상품, 기본금리 연 3.10%, 가입기간 24개월",
+    "source_file": "saving.pdf"
+  },
+  {
+    "id": "product_003",
+    "title": "주택담보대출 상품안내",
+    "category": "상품설명서",
+    "content": "주택을 담보로 신청 가능한 대출 상품, 대출한도 최대 5억원, 금리 연 4.50%",
+    "source_file": "mortgage.pdf"
+  },
+  {
+    "id": "product_004",
+    "title": "신용대출 상품안내",
+    "category": "상품설명서",
+    "content": "직장인 대상 신용대출 상품, 최대 1억원까지 가능, 금리 연 5.10%",
+    "source_file": "creditloan.pdf"
+  },
+  {
+    "id": "product_005",
+    "title": "전세자금대출 상품안내",
+    "category": "상품설명서",
+    "content": "전세보증금을 지원하는 대출 상품, 최대 2억원, 금리 연 3.90%",
+    "source_file": "jeonse.pdf"
+  },
+  {
+    "id": "product_006",
+    "title": "외화예금 상품설명서",
+    "category": "상품설명서",
+    "content": "USD 기반 예금 상품, 환율 변동 위험 존재, 개인 고객 가입 가능",
+    "source_file": "foreign_deposit.pdf"
+  },
+  {
+    "id": "product_007",
+    "title": "퇴직연금 상품설명서",
+    "category": "상품설명서",
+    "content": "노후 자산 형성을 위한 퇴직연금 상품, 세제 혜택 제공",
+    "source_file": "pension.pdf"
+  },
+  {
+    "id": "product_008",
+    "title": "IRP 상품안내",
+    "category": "상품설명서",
+    "content": "개인형 퇴직연금 상품, 연금 수령 시 세액공제 혜택 가능",
+    "source_file": "irp.pdf"
+  },
+  {
+    "id": "product_009",
+    "title": "체크카드 상품안내",
+    "category": "상품설명서",
+    "content": "대중교통 할인 및 편의점 할인 혜택 제공, 연회비 없음",
+    "source_file": "checkcard.pdf"
+  },
+  {
+    "id": "product_010",
+    "title": "신용카드 상품안내",
+    "category": "상품설명서",
+    "content": "국내외 가맹점 이용 가능, 연회비 1만원, 캐시백 혜택 제공",
+    "source_file": "creditcard.pdf"
+  },
+  {
+    "id": "notice_001",
+    "title": "계좌개설 안내",
+    "category": "고객안내문",
+    "content": "계좌 개설 시 신분증을 지참해야 하며 영업점 방문 후 신청 가능합니다.",
+    "source_file": "account_open.pdf"
+  },
+  {
+    "id": "notice_002",
+    "title": "인터넷뱅킹 가입안내",
+    "category": "고객안내문",
+    "content": "인터넷뱅킹 이용을 위해 본인 인증 후 가입이 필요합니다.",
+    "source_file": "ibanking.pdf"
+  },
+  {
+    "id": "notice_003",
+    "title": "모바일뱅킹 이용안내",
+    "category": "고객안내문",
+    "content": "모바일 앱 설치 후 본인 인증을 통해 서비스를 이용할 수 있습니다.",
+    "source_file": "mbanking.pdf"
+  },
+  {
+    "id": "notice_004",
+    "title": "OTP 발급안내",
+    "category": "고객안내문",
+    "content": "전자금융 거래를 위해 OTP를 발급받아야 합니다.",
+    "source_file": "otp.pdf"
+  },
+  {
+    "id": "notice_005",
+    "title": "시스템 점검 안내",
+    "category": "고객안내문",
+    "content": "시스템 점검 시간 동안 일부 금융 서비스 이용이 제한됩니다.",
+    "source_file": "maintenance.pdf"
+  },
+  {
+    "id": "notice_006",
+    "title": "영업점 이용안내",
+    "category": "고객안내문",
+    "content": "영업시간은 평일 오전 9시부터 오후 4시까지입니다.",
+    "source_file": "branch.pdf"
+  },
+  {
+    "id": "notice_007",
+    "title": "휴면계좌 해지안내",
+    "category": "고객안내문",
+    "content": "휴면계좌는 본인 확인 후 해지 또는 재사용 가능합니다.",
+    "source_file": "inactive.pdf"
+  },
+  {
+    "id": "notice_008",
+    "title": "이체한도 변경안내",
+    "category": "고객안내문",
+    "content": "보안등급에 따라 이체한도 변경이 가능합니다.",
+    "source_file": "limit.pdf"
+  },
+  {
+    "id": "notice_009",
+    "title": "외국인 고객 이용안내",
+    "category": "고객안내문",
+    "content": "외국인등록증 또는 여권을 지참하여 금융 서비스를 이용할 수 있습니다.",
+    "source_file": "foreigner.pdf"
+  },
+  {
+    "id": "notice_010",
+    "title": "전자금융사기 예방안내",
+    "category": "고객안내문",
+    "content": "OTP 번호와 인증정보를 타인에게 제공하지 마십시오.",
+    "source_file": "fraud.pdf"
+  },
+  {
+    "id": "marketing_001",
+    "title": "정기예금 특판 이벤트",
+    "category": "마케팅콘텐츠",
+    "content": "지금 가입하면 최고 연 4.50% 금리 제공! 선착순 1만명 한정.",
+    "source_file": "event1.pdf"
+  },
+  {
+    "id": "marketing_002",
+    "title": "환전 우대 프로모션",
+    "category": "마케팅콘텐츠",
+    "content": "주요 통화 환율 우대 최대 90% 제공.",
+    "source_file": "event2.pdf"
+  },
+  {
+    "id": "marketing_003",
+    "title": "모바일뱅킹 가입 이벤트",
+    "category": "마케팅콘텐츠",
+    "content": "신규 가입 고객 대상 1만원 캐시백 지급.",
+    "source_file": "event3.pdf"
+  },
+  {
+    "id": "marketing_004",
+    "title": "카드 발급 이벤트",
+    "category": "마케팅콘텐츠",
+    "content": "카드 신규 발급 시 커피 쿠폰 증정.",
+    "source_file": "event4.pdf"
+  },
+  {
+    "id": "marketing_005",
+    "title": "여름 환전 이벤트",
+    "category": "마케팅콘텐츠",
+    "content": "여행 시즌 맞이 환전 우대 특별 프로모션.",
+    "source_file": "event5.pdf"
+  },
+  {
+    "id": "marketing_006",
+    "title": "추천인 이벤트",
+    "category": "마케팅콘텐츠",
+    "content": "친구 추천 시 최대 2만원 리워드 지급.",
+    "source_file": "event6.pdf"
+  },
+  {
+    "id": "marketing_007",
+    "title": "청년 적금 이벤트",
+    "category": "마케팅콘텐츠",
+    "content": "청년 고객 대상 특별 우대금리 제공.",
+    "source_file": "event7.pdf"
+  },
+  {
+    "id": "marketing_008",
+    "title": "VIP 고객 혜택 안내",
+    "category": "마케팅콘텐츠",
+    "content": "VIP 고객 전용 금융 컨설팅 서비스 제공.",
+    "source_file": "event8.pdf"
+  },
+  {
+    "id": "marketing_009",
+    "title": "연말 경품 이벤트",
+    "category": "마케팅콘텐츠",
+    "content": "추첨을 통해 최신 전자기기 증정.",
+    "source_file": "event9.pdf"
+  },
+  {
+    "id": "marketing_010",
+    "title": "앱 다운로드 이벤트",
+    "category": "마케팅콘텐츠",
+    "content": "앱 설치 후 로그인 시 포인트 지급.",
+    "source_file": "event10.pdf"
+  }
+]

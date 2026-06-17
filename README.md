@@ -1,15 +1,61 @@
 # ANI Server
 
-FastAPI 기반 번역/OCR 서버입니다.
+FastAPI 기반 문서 분석 서버입니다.
 
-텍스트, 파일, 이미지에서 추출한 문장을 Azure Translator로 1차 번역하고, Azure AI Search 용어집과 Azure OpenAI를 사용해 금융/은행 문맥에 맞게 번역 품질을 보정합니다. 이미지 OCR은 Azure AI Vision을 사용하며, 번역된 문구를 이미지 위에 다시 그린 결과도 반환합니다.
+텍스트 입력 또는 파일 업로드로 받은 문서를 Azure AI Search 하이브리드 검색과 Azure OpenAI 분석 Agent를 사용해 문서 유형, 문서 성격, 포함 정보, 핵심 수치, 법적/주의 문구로 정리합니다.
 
 ## 주요 기능
 
-- 텍스트 번역: `POST /translate/text`
-- 파일 번역: `POST /translate/file`
-- 이미지 OCR 및 번역: `POST /ocr/image`
+- 문서 정보 분석: `POST /documents/analyze/text`, `POST /documents/analyze/file`
 - 지원 파일 추출: `txt`, `pdf`, `docx`, `png`, `jpg`, `jpeg`
+
+## 문서 분석 API
+
+Azure AI Search 문서 인덱스에서 키워드 검색과 벡터 검색을 함께 수행한 뒤, Azure OpenAI가 문서 유형/성격/포함 정보/핵심 수치/법적 및 주의 문구를 분석합니다.
+
+### 텍스트 분석
+
+```http
+POST /documents/analyze/text
+Content-Type: application/json
+```
+
+```json
+{
+  "text": "외국인 고객 대상 예금 상품 안내. 기본금리, 가입기간, 우대조건, 예금자보호 문구 포함",
+  "top": 5
+}
+```
+
+### 파일 분석
+
+```http
+POST /documents/analyze/file
+Content-Type: multipart/form-data
+```
+
+필드:
+
+- `file`: 분석할 파일
+- `top`: 검색 결과 개수, 기본값 5
+
+이미지 파일(`png`, `jpg`, `jpeg`)은 Azure Vision OCR로 텍스트를 추출한 뒤 분석하고, 그 외 `txt`, `pdf`, `docx`는 기존 파일 텍스트 추출 로직을 사용합니다.
+
+응답에는 `analysis`와 AI Search에서 가져온 `retrieved_documents`가 함께 포함됩니다. `analysis.key_numbers_preview`에는 원문에서 확인된 금리, 가입기간, 예금자보호 한도, 중도해지 이율 같은 핵심 수치가 포함됩니다.
+
+```json
+{
+  "analysis": {
+    "key_numbers_preview": [
+      {
+        "label": "기본금리",
+        "value": "연 3.2%",
+        "source_text": "기본금리 연 3.2%"
+      }
+    ]
+  }
+}
+```
 
 ## 초기 세팅
 
@@ -51,7 +97,7 @@ CMD:
 copy .env.example .env
 ```
 
-4. `.env`에 Azure Translator, Azure AI Search, Azure OpenAI, Azure AI Vision 값을 입력합니다.
+4. `.env`에 Azure AI Search, Azure OpenAI, Azure AI Vision 값을 입력합니다.
 
 5. 서버를 실행합니다.
 
@@ -63,5 +109,4 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 ## 참고
 
-- `pytesseract`를 사용하는 파일 OCR 기능은 별도의 Tesseract OCR 설치가 필요할 수 있습니다.
 - 기본 CORS 허용 origin은 `http://localhost:5173`입니다.

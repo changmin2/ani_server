@@ -43,36 +43,39 @@ def get_document_embedding(text):
     return response.data[0].embedding
 
 
-def improve_translation(original_text, machine_translation, glossary_terms, target_lang):
+def calculate_document_confidence(text, analysis, retrieved_documents):
+    score = 0.35
+    text_length = len(text.strip())
 
-    glossary_text = ""
-    for t in glossary_terms:
-        glossary_text += f"{t['ko']} = {t['en']}\n"
+    if text_length >= 50:
+        score += 0.08
+    if text_length >= 150:
+        score += 0.07
 
-    prompt = f"""
-You are a banking translation expert.
+    included_information = analysis.get("included_information", [])
+    key_numbers_preview = analysis.get("key_numbers_preview", [])
+    legal_notice_detection = analysis.get("legal_notice_detection", {})
 
-Target language: {target_lang}
+    score += min(len(included_information) * 0.04, 0.16)
+    score += min(len(key_numbers_preview) * 0.05, 0.20)
 
-Glossary:
-{glossary_text}
+    if legal_notice_detection.get("count", 0) > 0:
+        score += 0.04
 
-Original:
-{original_text}
+    if retrieved_documents:
+        score += 0.08
 
-Machine translation:
-{machine_translation}
-
-Return only final translation.
-"""
-    response = get_openai_client().chat.completions.create(
-        model=get_required_env("AZURE_OPENAI_DEPLOYMENT"),
-        messages=[
-            {"role": "user", "content": prompt}
+        categories = [
+            doc.get("category", "")
+            for doc in retrieved_documents[:3]
+            if doc.get("category")
         ]
-    )
 
-    return response.choices[0].message.content
+        if categories:
+            most_common_count = max(categories.count(category) for category in set(categories))
+            score += (most_common_count / len(categories)) * 0.07
+
+    return round(min(score, 0.95), 2)
 
 
 def analyze_document_info(query, retrieved_documents):
@@ -105,6 +108,9 @@ Azure AI Search 검색 결과는 문서 유형 판단을 보조하는 참고자�
 분석 항목:
 - document_type: 위 3개 중 하나
 - document_character: 입력 원문에서 판단 가능한 문서 성격을 한 문장으로 요약
+- document_structure.title: 입력 원문에서 확인 가능한 제목 또는 가장 적절한 문서명
+- document_structure.body_sections: 입력 원문에서 확인 가능한 본문 영역/구성 요소 목록
+- document_structure.notice_phrases: 입력 원문에서 확인 가능한 주의 문구 목록
 - included_information: 입력 원문에 실제로 포함된 주요 정보 목록
 - key_numbers_preview: 입력 원문에 실제로 포함된 핵심 수치 목록
 - legal_notice_detection.count: 입력 원문에서 법적 문구 또는 주의 문구로 볼 수 있는 항목 수
@@ -112,6 +118,10 @@ Azure AI Search 검색 결과는 문서 유형 판단을 보조하는 참고자�
 
 절대 규칙:
 - included_information에는 반드시 사용자 입력 원문에 실제로 있는 정보만 넣는다.
+- document_structure는 반드시 사용자 입력 원문에서 판단 가능한 내용만 넣는다.
+- 제목이 명시되어 있지 않으면 입력 원문 내용을 바탕으로 짧은 문서명을 만들되, 추측성 상품명은 만들지 않는다.
+- body_sections에는 상품 개요, 가입 대상, 가입기간, 금리, 우대조건, 해지조건, 이용방법 등 원문에 실제로 드러나는 영역만 넣는다.
+- notice_phrases에는 예금자보호, 중도해지, 원금손실, 환율변동, 수수료, 이용제한 등 주의/고지 문구가 실제로 있을 때만 넣는다.
 - key_numbers_preview에는 반드시 사용자 입력 원문에 실제로 있는 수치 정보만 넣는다.
 - key_numbers_preview의 source_text에는 입력 원문에서 해당 수치를 확인할 수 있는 원문 일부를 그대로 넣는다.
 - 기본금리, 기준금리, 우대금리, 가입기간, 예금자보호 한도, 대출한도, 한도, 수수료, 연회비, 만기, 중도해지 이율 등 금융 핵심 수치를 우선 추출한다.
@@ -134,6 +144,11 @@ Azure AI Search 검색 결과:
 {{
   "document_type": "금융 상품안내문",
   "document_character": "",
+  "document_structure": {{
+    "title": "",
+    "body_sections": [],
+    "notice_phrases": []
+  }},
   "included_information": [],
   "key_numbers_preview": [
     {{
@@ -171,6 +186,14 @@ Azure AI Search 검색 결과:
 
     try:
         result = json.loads(content)
+        result.setdefault(
+            "document_structure",
+            {
+                "title": "",
+                "body_sections": [],
+                "notice_phrases": []
+            }
+        )
         result.setdefault("included_information", [])
         result.setdefault("key_numbers_preview", [])
         result.setdefault(
@@ -180,12 +203,22 @@ Azure AI Search 검색 결과:
                 "items": []
             }
         )
+        result["confidence"] = calculate_document_confidence(
+            query,
+            result,
+            retrieved_documents
+        )
 
         return result
     except json.JSONDecodeError:
-        return {
+        result = {
             "document_type": "고객 안내서",
             "document_character": "분석 결과를 JSON으로 변환하지 못했습니다.",
+            "document_structure": {
+                "title": "",
+                "body_sections": [],
+                "notice_phrases": []
+            },
             "included_information": [],
             "key_numbers_preview": [],
             "legal_notice_detection": {
@@ -194,3 +227,10 @@ Azure AI Search 검색 결과:
             },
             "raw_response": content
         }
+        result["confidence"] = calculate_document_confidence(
+            query,
+            result,
+            retrieved_documents
+        )
+
+        return result

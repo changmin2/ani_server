@@ -5,7 +5,11 @@ from pydantic import BaseModel
 
 from file_reader import extract_text
 
-from search_service import search_documents_hybrid
+from search_service import (
+    find_finance_terms_in_text,
+    search_documents_hybrid,
+    search_finance_terms_hybrid
+)
 from openai_service import (
     get_document_embedding,
     analyze_document_info
@@ -16,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ocr_service import extract_ocr_texts
 app = FastAPI()
 
+# 프론트 개발 서버(Vite 기본 포트)에서 백엔드 API를 호출할 수 있도록 CORS를 허용한다.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -25,12 +30,23 @@ app.add_middleware(
 )
 
 class DocumentAnalyzeTextRequest(BaseModel):
+    # 신규 화면에서는 text를 사용하지만, 이전 테스트 코드 호환을 위해 query도 허용한다.
     text: Optional[str] = None
     query: Optional[str] = None
+    # Azure AI Search에서 가져올 관련 문서 수. 너무 크면 응답/프롬프트가 불필요하게 커진다.
     top: int = 5
 
 
+class FinanceTermSearchRequest(BaseModel):
+    text: str
+    top: int = 12
+
+
 def analyze_document_text(text: str, top: int):
+    # 텍스트 입력과 파일 OCR/텍스트 추출 결과가 공통으로 타는 핵심 분석 파이프라인이다.
+    # 1) 입력 원문 임베딩 생성
+    # 2) AI Search에서 키워드 + 벡터 하이브리드 검색
+    # 3) 검색 결과를 참고 자료로 넣어 Azure OpenAI Agent가 JSON 분석 결과 생성
     text = text.strip()
 
     if not text:
@@ -41,6 +57,7 @@ def analyze_document_text(text: str, top: int):
 
     query_vector = get_document_embedding(text)
 
+    # 검색 결과는 최종 추출값의 원천이 아니라, 문서 유형 판단을 보조하는 근거 자료로만 사용한다.
     retrieved_documents = search_documents_hybrid(
         query=text,
         query_vector=query_vector,
@@ -59,11 +76,38 @@ def analyze_document_text(text: str, top: int):
     }
 
 
+def search_finance_term_matches(text: str, top: int):
+    text = text.strip()
+
+    if not text:
+        raise ValueError("text must not be empty.")
+
+    if top < 1 or top > 50:
+        raise ValueError("top must be between 1 and 50.")
+
+    matches = find_finance_terms_in_text(text, top=top)
+
+    if not matches:
+        query_vector = get_document_embedding(text)
+        matches = search_finance_terms_hybrid(
+            query=text,
+            query_vector=query_vector,
+            top=top
+        )
+
+    return {
+        "text": text,
+        "matches": matches
+    }
+
+
 def is_image_file(filename: str):
+    # 이미지 파일은 일반 파일 텍스트 추출 대신 Azure Vision OCR 경로를 탄다.
     return filename.lower().endswith((".png", ".jpg", ".jpeg"))
 
 
 def extract_text_from_image_bytes(contents: bytes):
+    # Azure Vision OCR은 줄 단위 결과와 좌표를 함께 주므로, 분석 API에는 텍스트만 합쳐서 넘긴다.
     ocr_items = extract_ocr_texts(contents)
 
     return "\n".join(
@@ -76,12 +120,27 @@ def extract_text_from_image_bytes(contents: bytes):
 @app.post("/documents/analyze/text")
 def analyze_document_from_text(req: DocumentAnalyzeTextRequest):
     try:
+        # 프론트는 text로 보내고, 과거 테스트용 요청은 query로 들어올 수 있다.
         text = req.text if req.text is not None else req.query
 
         if text is None:
             raise ValueError("text must not be empty.")
 
         return analyze_document_text(text, req.top)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/finance-terms/search")
+def search_finance_terms(req: FinanceTermSearchRequest):
+    try:
+        return search_finance_term_matches(req.text, req.top)
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -102,9 +161,11 @@ async def analyze_document_from_file(
         filename = file.filename or ""
 
         if is_image_file(filename):
+            # 이미지 업로드: Azure Vision OCR로 글자를 먼저 뽑은 뒤 분석한다.
             text = extract_text_from_image_bytes(contents)
             extract_method = "azure_vision_ocr"
         else:
+            # PDF/DOCX/TXT 업로드: 임시 파일로 저장한 뒤 기존 extract_text 유틸로 본문을 추출한다.
             _, suffix = os.path.splitext(filename)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -134,6 +195,7 @@ async def analyze_document_from_file(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     finally:
+        # PDF/DOCX/TXT 경로에서 만든 임시 파일은 요청 처리 후 반드시 삭제한다.
         if "path" in locals() and os.path.exists(path):
             os.remove(path)
 

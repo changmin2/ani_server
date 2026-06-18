@@ -17,6 +17,7 @@ def get_required_env(name):
 
 @lru_cache(maxsize=1)
 def get_openai_client():
+    # 문서 분석 Agent가 사용하는 Azure OpenAI chat 모델 클라이언트.
     return OpenAI(
         api_key=get_required_env("AZURE_OPENAI_API_KEY"),
         base_url=get_required_env("AZURE_OPENAI_ENDPOINT").rstrip("/")
@@ -25,6 +26,8 @@ def get_openai_client():
 
 @lru_cache(maxsize=1)
 def get_docs_openai_client():
+    # 문서 검색용 임베딩 모델 클라이언트.
+    # 업로드 스크립트(upload_docs.py)와 같은 임베딩 배포를 사용해야 검색 벡터 차원이 맞는다.
     return OpenAI(
         api_key=get_required_env("AZURE_OPENAI_DOCS_API_KEY"),
         base_url=get_required_env("AZURE_OPENAI_DOCS_ENDPOINT").rstrip("/")
@@ -32,6 +35,8 @@ def get_docs_openai_client():
 
 
 def get_document_embedding(text):
+    # AI Search 벡터 검색에 사용할 입력 원문 임베딩을 만든다.
+    # 빈 문자열은 임베딩 API 에러를 피하기 위해 공백 하나로 대체한다.
     if not text:
         text = " "
 
@@ -44,9 +49,12 @@ def get_document_embedding(text):
 
 
 def calculate_document_confidence(text, analysis, retrieved_documents):
+    # 화면의 "신뢰도"에 표시할 점수를 서버에서 계산한다.
+    # 모델에게 자체 평가를 맡기면 일관성이 떨어질 수 있어, 추출량/검색 근거/문서 길이 기반으로 산정한다.
     score = 0.35
     text_length = len(text.strip())
 
+    # 원문 길이가 너무 짧으면 판단 근거가 부족하므로, 일정 길이 이상일 때만 가점을 준다.
     if text_length >= 50:
         score += 0.08
     if text_length >= 150:
@@ -56,6 +64,7 @@ def calculate_document_confidence(text, analysis, retrieved_documents):
     key_numbers_preview = analysis.get("key_numbers_preview", [])
     legal_notice_detection = analysis.get("legal_notice_detection", {})
 
+    # 실제 원문에서 뽑힌 정보가 많을수록 분석 근거가 풍부하다고 본다.
     score += min(len(included_information) * 0.04, 0.16)
     score += min(len(key_numbers_preview) * 0.05, 0.20)
 
@@ -65,6 +74,7 @@ def calculate_document_confidence(text, analysis, retrieved_documents):
     if retrieved_documents:
         score += 0.08
 
+        # 상위 검색 결과의 category가 일관되면 문서 유형 판단도 더 안정적이라고 본다.
         categories = [
             doc.get("category", "")
             for doc in retrieved_documents[:3]
@@ -79,6 +89,8 @@ def calculate_document_confidence(text, analysis, retrieved_documents):
 
 
 def analyze_document_info(query, retrieved_documents):
+    # LLM에게 넘길 AI Search 검색 결과를 사람이 읽기 쉬운 컨텍스트로 직렬화한다.
+    # 중요한 점: 이 컨텍스트는 "참고자료"일 뿐이고, 실제 추출값은 사용자 입력 원문에서만 뽑도록 프롬프트에서 강제한다.
     context_lines = []
 
     for index, doc in enumerate(retrieved_documents, start=1):
@@ -165,6 +177,7 @@ Azure AI Search 검색 결과:
 """
 
     try:
+        # JSON 모드를 지원하는 Azure OpenAI 배포에서는 응답 형식을 JSON 객체로 강제한다.
         response = get_openai_client().chat.completions.create(
             model=get_required_env("AZURE_OPENAI_DEPLOYMENT"),
             messages=[
@@ -174,6 +187,7 @@ Azure AI Search 검색 결과:
             temperature=0
         )
     except (BadRequestError, TypeError):
+        # 일부 Azure 배포/SDK 조합은 response_format을 지원하지 않을 수 있으므로 일반 호출로 fallback한다.
         response = get_openai_client().chat.completions.create(
             model=get_required_env("AZURE_OPENAI_DEPLOYMENT"),
             messages=[
@@ -186,6 +200,7 @@ Azure AI Search 검색 결과:
 
     try:
         result = json.loads(content)
+        # 프론트가 항상 같은 shape을 기대할 수 있도록 누락된 필드는 기본값으로 보정한다.
         result.setdefault(
             "document_structure",
             {
@@ -211,6 +226,7 @@ Azure AI Search 검색 결과:
 
         return result
     except json.JSONDecodeError:
+        # 모델이 JSON이 아닌 답변을 반환한 경우에도 프론트가 깨지지 않도록 fallback JSON을 내려준다.
         result = {
             "document_type": "고객 안내서",
             "document_character": "분석 결과를 JSON으로 변환하지 못했습니다.",

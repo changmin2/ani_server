@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import Response
 import tempfile
 
 from pydantic import BaseModel, Field
@@ -16,8 +17,9 @@ from openai_service import (
     get_document_embedding,
     analyze_document_info
 )
-from translation_service import translate_document
+from translation_service import translate_document, get_language_code
 from validation_agent import call_gpt_41_model, call_validation_agent
+from layout_translation_service import translate_pdf_layout
 from typing import Optional
 import os
 from fastapi.middleware.cors import CORSMiddleware
@@ -332,6 +334,44 @@ async def analyze_document_from_file(
             contents,
             filename,
             top
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/documents/translate-layout")
+async def translate_document_layout(
+    file: UploadFile = File(...),
+    target_language: str = Form("en"),
+):
+    """[프로토타입] 텍스트형 PDF의 디자인/위치를 유지한 채 언어만 바꿔 PDF로 돌려준다."""
+    try:
+        filename = file.filename or ""
+
+        if not filename.lower().endswith(".pdf"):
+            raise ValueError("현재 프로토타입은 PDF 파일만 지원합니다.")
+
+        contents = await file.read()
+        target_code = get_language_code(target_language)
+
+        translated_pdf = await run_in_threadpool(
+            translate_pdf_layout,
+            contents,
+            target_code,
+        )
+
+        download_name = f"translated_{target_code}.pdf"
+
+        return Response(
+            content=translated_pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
         )
 
     except ValueError as e:

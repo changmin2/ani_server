@@ -19,7 +19,7 @@ from openai_service import (
 )
 from translation_service import translate_document, get_language_code
 from validation_agent import call_gpt_41_model, call_validation_agent
-from layout_translation_service import translate_pdf_layout
+from layout_translation_service import translate_pdf_layout, render_translated_page_png
 from typing import Optional
 import os
 from fastapi.middleware.cors import CORSMiddleware
@@ -430,6 +430,40 @@ async def translate_document_layout(
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
         )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/documents/translate-layout/preview")
+async def translate_document_layout_preview(
+    file: UploadFile = File(...),
+    target_language: str = Form("en"),
+    page: int = Form(0),
+):
+    """[프로토타입] PDF 첫 페이지를 번역해 PNG 이미지로 돌려준다. (5페이지 미리보기용)"""
+    try:
+        filename = file.filename or ""
+
+        if not filename.lower().endswith(".pdf"):
+            raise ValueError("현재 미리보기는 PDF 파일만 지원합니다.")
+
+        contents = await file.read()
+        target_code = get_language_code(target_language)
+
+        png_bytes = await run_in_threadpool(
+            render_translated_page_png,
+            contents,
+            target_code,
+            page,
+        )
+
+        return Response(content=png_bytes, media_type="image/png")
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

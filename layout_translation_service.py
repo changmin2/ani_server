@@ -79,6 +79,51 @@ def _collect_spans(page):
     return spans
 
 
+def _translate_page(page, target_code, fontname, fontfile, measure_font):
+    """페이지 한 장의 텍스트를 같은 위치/색/폰트로 번역문으로 교체한다."""
+    spans = _collect_spans(page)
+    if not spans:
+        return
+
+    translated = translate_texts(
+        [span["text"] for span in spans],
+        target_code,
+    )
+
+    # 1) 원문 글자 제거: 각 span 영역을 흰색으로 가린다.
+    for span in spans:
+        page.add_redact_annot(fitz.Rect(span["bbox"]), fill=(1, 1, 1))
+
+    page.apply_redactions()
+
+    # 2) 같은 위치(baseline origin)에 번역문 삽입.
+    for span, text in zip(spans, translated):
+        if not text.strip():
+            continue
+
+        rect = fitz.Rect(span["bbox"])
+        size = span.get("size", 11) or 11
+        color = _srgb_to_rgb(span.get("color", 0))
+        origin = fitz.Point(span["origin"])
+
+        # 번역문이 원본 폭을 넘으면 폰트 크기를 비례 축소(최소 4pt).
+        text_width = measure_font.text_length(text, fontsize=size)
+        available = rect.width or text_width
+        font_size = size
+
+        if text_width > available and text_width > 0:
+            font_size = max(4.0, size * (available / text_width))
+
+        page.insert_text(
+            origin,
+            text,
+            fontsize=font_size,
+            fontname=fontname,
+            fontfile=fontfile,
+            color=color,
+        )
+
+
 def translate_pdf_layout(pdf_bytes, target_code):
     """텍스트형 PDF의 레이아웃/색/위치를 유지한 채 글자만 번역한다.
 
@@ -91,49 +136,34 @@ def translate_pdf_layout(pdf_bytes, target_code):
 
     try:
         for page in doc:
-            spans = _collect_spans(page)
-            if not spans:
-                continue
-
-            translated = translate_texts(
-                [span["text"] for span in spans],
-                target_code,
-            )
-
-            # 1) 원문 글자 제거: 각 span 영역을 흰색으로 가린다.
-            for span in spans:
-                page.add_redact_annot(fitz.Rect(span["bbox"]), fill=(1, 1, 1))
-
-            page.apply_redactions()
-
-            # 2) 같은 위치(baseline origin)에 번역문 삽입.
-            for span, text in zip(spans, translated):
-                if not text.strip():
-                    continue
-
-                rect = fitz.Rect(span["bbox"])
-                size = span.get("size", 11) or 11
-                color = _srgb_to_rgb(span.get("color", 0))
-                origin = fitz.Point(span["origin"])
-
-                # 번역문이 원본 폭을 넘으면 폰트 크기를 비례 축소(최소 4pt).
-                text_width = measure_font.text_length(text, fontsize=size)
-                available = rect.width or text_width
-                font_size = size
-
-                if text_width > available and text_width > 0:
-                    font_size = max(4.0, size * (available / text_width))
-
-                page.insert_text(
-                    origin,
-                    text,
-                    fontsize=font_size,
-                    fontname=fontname,
-                    fontfile=fontfile,
-                    color=color,
-                )
+            _translate_page(page, target_code, fontname, fontfile, measure_font)
 
         return doc.tobytes(garbage=4, deflate=True)
+
+    finally:
+        doc.close()
+
+
+def render_translated_page_png(pdf_bytes, target_code, page_index=0, dpi=150):
+    """PDF의 특정 페이지(기본 첫 페이지)만 번역해 PNG 이미지 바이트로 렌더한다.
+
+    5페이지 '디자인 적용 미리보기'에서 원본 첫 페이지에 번역문이 같은 위치/색/폰트로
+    들어간 모습을 보여주기 위한 용도. 미리보기라 한 페이지만 처리해 빠르게 응답한다.
+    """
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    fontname, fontfile = _resolve_font(target_code)
+    measure_font = _build_font(fontname, fontfile)
+
+    try:
+        if page_index < 0 or page_index >= doc.page_count:
+            raise ValueError("page_index가 PDF 페이지 범위를 벗어났습니다.")
+
+        page = doc[page_index]
+        _translate_page(page, target_code, fontname, fontfile, measure_font)
+
+        pixmap = page.get_pixmap(dpi=dpi)
+
+        return pixmap.tobytes("png")
 
     finally:
         doc.close()

@@ -17,6 +17,7 @@ from openai_service import (
     analyze_document_info
 )
 from translation_service import translate_document
+from validation_agent import call_gpt_41_model, call_validation_agent
 from typing import Optional
 import os
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,6 +62,27 @@ class DocumentTranslateRequest(BaseModel):
     target_languages: list[str]
     tone_style: str = "공식적이고 신뢰감 있는 금융 문체"
     finance_terms: list[dict] = Field(default_factory=list)
+
+
+class ValidationKeyInformation(BaseModel):
+    label: str
+    sourceValue: str
+
+
+class ValidationAgentRequest(BaseModel):
+    documentType: str = "금융상품 안내문"
+    targetLanguage: str = "English"
+    country: str = "Vietnam"
+    sourceText: str = "우대금리는 최대 연 0.50%p 제공됩니다."
+    translatedText: str = "Special interest rate available."
+    keyInformation: list[ValidationKeyInformation] = Field(
+        default_factory=lambda: [
+            ValidationKeyInformation(
+                label="우대금리",
+                sourceValue="최대 연 0.50%p"
+            )
+        ]
+    )
 
 
 def analyze_document_text(text: str, top: int):
@@ -264,6 +286,28 @@ def translate_document_from_analysis(req: DocumentTranslateRequest):
         result["cache_hit"] = cache_hit
 
         return result
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/documents/validation")
+async def validate_translation_with_agent(req: ValidationAgentRequest):
+    try:
+        payload = req.model_dump()
+        model_result = await run_in_threadpool(call_gpt_41_model, payload)
+        agent_result = await run_in_threadpool(call_validation_agent, payload)
+
+        return {
+            "input": payload,
+            "model_result": model_result,
+            "agent_result": agent_result
+        }
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

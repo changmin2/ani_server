@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 import tempfile
 
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from cache_service import get_or_set_cache, make_cache_key, normalize_text
 from file_reader import extract_text
@@ -27,8 +28,15 @@ app = FastAPI()
 # 5173 포트로 들어오는 개발 origin을 허용한다.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_origin_regex=r"^http://[^/]+:5173$",
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+    ],
+    allow_origin_regex=r"^http://[^/]+:517[0-9]$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -158,6 +166,42 @@ def extract_text_from_image_bytes(contents: bytes):
     )
 
 
+def process_uploaded_document(contents: bytes, filename: str, top: int):
+    path = None
+
+    try:
+        if is_image_file(filename):
+            # 이미지 업로드: Azure Vision OCR로 글자를 먼저 뽑은 뒤 분석한다.
+            text = extract_text_from_image_bytes(contents)
+            extract_method = "azure_vision_ocr"
+        else:
+            # PDF/DOCX/TXT 업로드: 임시 파일로 저장한 뒤 기존 extract_text 유틸로 본문을 추출한다.
+            _, suffix = os.path.splitext(filename)
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                path = tmp.name
+                tmp.write(contents)
+
+            text = extract_text(path)
+            extract_method = "file_text_extraction"
+
+        if not text.strip():
+            raise ValueError("file text could not be extracted.")
+
+        result = analyze_document_text(text, top)
+
+        return {
+            "file_name": filename,
+            "extract_method": extract_method,
+            **result
+        }
+
+    finally:
+        # PDF/DOCX/TXT 경로에서 만든 임시 파일은 요청 처리 후 반드시 삭제한다.
+        if path and os.path.exists(path):
+            os.remove(path)
+
+
 @app.post("/documents/analyze/text")
 def analyze_document_from_text(req: DocumentAnalyzeTextRequest):
     try:
@@ -239,31 +283,12 @@ async def analyze_document_from_file(
         contents = await file.read()
         filename = file.filename or ""
 
-        if is_image_file(filename):
-            # 이미지 업로드: Azure Vision OCR로 글자를 먼저 뽑은 뒤 분석한다.
-            text = extract_text_from_image_bytes(contents)
-            extract_method = "azure_vision_ocr"
-        else:
-            # PDF/DOCX/TXT 업로드: 임시 파일로 저장한 뒤 기존 extract_text 유틸로 본문을 추출한다.
-            _, suffix = os.path.splitext(filename)
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                path = tmp.name
-                tmp.write(contents)
-
-            text = extract_text(path)
-            extract_method = "file_text_extraction"
-
-        if not text.strip():
-            raise ValueError("file text could not be extracted.")
-
-        result = analyze_document_text(text, top)
-
-        return {
-            "file_name": filename,
-            "extract_method": extract_method,
-            **result
-        }
+        return await run_in_threadpool(
+            process_uploaded_document,
+            contents,
+            filename,
+            top
+        )
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -272,11 +297,6 @@ async def analyze_document_from_file(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-    finally:
-        # PDF/DOCX/TXT 경로에서 만든 임시 파일은 요청 처리 후 반드시 삭제한다.
-        if "path" in locals() and os.path.exists(path):
-            os.remove(path)
 
 
 if __name__ == "__main__":

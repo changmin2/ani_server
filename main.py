@@ -3,6 +3,7 @@ import tempfile
 
 from pydantic import BaseModel, Field
 
+from cache_service import get_or_set_cache, make_cache_key, normalize_text
 from file_reader import extract_text
 
 from search_service import (
@@ -22,9 +23,12 @@ from ocr_service import extract_ocr_texts
 app = FastAPI()
 
 # 프론트 개발 서버(Vite 기본 포트)에서 백엔드 API를 호출할 수 있도록 CORS를 허용한다.
+# 여러 작업자가 같은 네트워크에서 Vite dev server로 접속할 수 있어 localhost뿐 아니라
+# 5173 포트로 들어오는 개발 origin을 허용한다.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origin_regex=r"^http://[^/]+:5173$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -64,25 +68,39 @@ def analyze_document_text(text: str, top: int):
     if top < 1 or top > 20:
         raise ValueError("top must be between 1 and 20.")
 
-    query_vector = get_document_embedding(text)
-
-    # 검색 결과는 최종 추출값의 원천이 아니라, 문서 유형 판단을 보조하는 근거 자료로만 사용한다.
-    retrieved_documents = search_documents_hybrid(
-        query=text,
-        query_vector=query_vector,
-        top=top
+    cache_key = make_cache_key(
+        "document_analysis",
+        {
+            "text": normalize_text(text),
+            "top": top
+        }
     )
 
-    analysis = analyze_document_info(
-        query=text,
-        retrieved_documents=retrieved_documents
-    )
+    def run_analysis():
+        query_vector = get_document_embedding(text)
 
-    return {
-        "text": text,
-        "analysis": analysis,
-        "retrieved_documents": retrieved_documents
-    }
+        # 검색 결과는 최종 추출값의 원천이 아니라, 문서 유형 판단을 보조하는 근거 자료로만 사용한다.
+        retrieved_documents = search_documents_hybrid(
+            query=text,
+            query_vector=query_vector,
+            top=top
+        )
+
+        analysis = analyze_document_info(
+            query=text,
+            retrieved_documents=retrieved_documents
+        )
+
+        return {
+            "text": text,
+            "analysis": analysis,
+            "retrieved_documents": retrieved_documents
+        }
+
+    result, cache_hit = get_or_set_cache(cache_key, run_analysis)
+    result["cache_hit"] = cache_hit
+
+    return result
 
 
 def search_finance_term_matches(text: str, top: int):
@@ -94,20 +112,34 @@ def search_finance_term_matches(text: str, top: int):
     if top < 1 or top > 50:
         raise ValueError("top must be between 1 and 50.")
 
-    matches = find_finance_terms_in_text(text, top=top)
+    cache_key = make_cache_key(
+        "finance_terms",
+        {
+            "text": normalize_text(text),
+            "top": top
+        }
+    )
 
-    if not matches:
-        query_vector = get_document_embedding(text)
-        matches = search_finance_terms_hybrid(
-            query=text,
-            query_vector=query_vector,
-            top=top
-        )
+    def run_search():
+        matches = find_finance_terms_in_text(text, top=top)
 
-    return {
-        "text": text,
-        "matches": matches
-    }
+        if not matches:
+            query_vector = get_document_embedding(text)
+            matches = search_finance_terms_hybrid(
+                query=text,
+                query_vector=query_vector,
+                top=top
+            )
+
+        return {
+            "text": text,
+            "matches": matches
+        }
+
+    result, cache_hit = get_or_set_cache(cache_key, run_search)
+    result["cache_hit"] = cache_hit
+
+    return result
 
 
 def is_image_file(filename: str):
@@ -163,13 +195,31 @@ def search_finance_terms(req: FinanceTermSearchRequest):
 @app.post("/documents/translate")
 def translate_document_from_analysis(req: DocumentTranslateRequest):
     try:
-        return translate_document(
-            source_text=req.source_text,
-            document_analysis=req.document_analysis,
-            target_languages=req.target_languages,
-            tone_style=req.tone_style,
-            finance_terms=req.finance_terms
+        source_text = req.source_text.strip()
+        cache_key = make_cache_key(
+            "document_translation",
+            {
+                "source_text": normalize_text(source_text),
+                "document_analysis": req.document_analysis,
+                "target_languages": req.target_languages,
+                "tone_style": req.tone_style,
+                "finance_terms": req.finance_terms
+            }
         )
+
+        def run_translation():
+            return translate_document(
+                source_text=source_text,
+                document_analysis=req.document_analysis,
+                target_languages=req.target_languages,
+                tone_style=req.tone_style,
+                finance_terms=req.finance_terms
+            )
+
+        result, cache_hit = get_or_set_cache(cache_key, run_translation)
+        result["cache_hit"] = cache_hit
+
+        return result
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

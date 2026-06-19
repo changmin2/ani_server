@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 import tempfile
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from file_reader import extract_text
 
@@ -14,6 +14,7 @@ from openai_service import (
     get_document_embedding,
     analyze_document_info
 )
+from translation_service import translate_document
 from typing import Optional
 import os
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +41,14 @@ class DocumentAnalyzeTextRequest(BaseModel):
 class FinanceTermSearchRequest(BaseModel):
     text: str
     top: int = 12
+
+
+class DocumentTranslateRequest(BaseModel):
+    source_text: str
+    document_analysis: dict = Field(default_factory=dict)
+    target_languages: list[str]
+    tone_style: str = "공식적이고 신뢰감 있는 금융 문체"
+    finance_terms: list[dict] = Field(default_factory=list)
 
 
 def analyze_document_text(text: str, top: int):
@@ -141,6 +150,26 @@ def analyze_document_from_text(req: DocumentAnalyzeTextRequest):
 def search_finance_terms(req: FinanceTermSearchRequest):
     try:
         return search_finance_term_matches(req.text, req.top)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/documents/translate")
+def translate_document_from_analysis(req: DocumentTranslateRequest):
+    try:
+        return translate_document(
+            source_text=req.source_text,
+            document_analysis=req.document_analysis,
+            target_languages=req.target_languages,
+            tone_style=req.tone_style,
+            finance_terms=req.finance_terms
+        )
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

@@ -7,6 +7,7 @@ FastAPI 기반 문서 분석 서버입니다.
 ## 주요 기능
 
 - 문서 정보 분석: `POST /documents/analyze/text`, `POST /documents/analyze/file`
+- 구조화 번역: `POST /documents/translate`
 - 지원 파일 추출: `txt`, `pdf`, `docx`, `png`, `jpg`, `jpeg`
 
 ## 문서 분석 API
@@ -54,6 +55,62 @@ Content-Type: multipart/form-data
       }
     ]
   }
+}
+```
+
+## 구조화 번역 API
+
+문서 분석 결과와 사용자가 선택한 대상 언어/톤/금융 용어를 바탕으로 언어별 번역 결과를 생성합니다.
+
+번역 결과는 4페이지 검토 화면에서 바로 렌더링할 수 있도록 제목, 요약, 섹션 단위로 반환됩니다.
+
+```http
+POST /documents/translate
+Content-Type: application/json
+```
+
+```json
+{
+  "source_text": "기본금리 연 3.20%, 가입기간 12개월",
+  "document_analysis": {
+    "document_type": "금융 상품안내문",
+    "key_numbers_preview": [
+      {
+        "label": "기본금리",
+        "value": "연 3.20%",
+        "source_text": "기본금리 연 3.20%"
+      }
+    ]
+  },
+  "target_languages": ["영어 (English)", "베트남어 (Tiếng Việt)"],
+  "tone_style": "공식적이고 신뢰감 있는 금융 문체",
+  "finance_terms": []
+}
+```
+
+응답:
+
+```json
+{
+  "translations": [
+    {
+      "language": "영어 (English)",
+      "language_code": "en",
+      "title": "",
+      "summary": "",
+      "sections": [
+        {
+          "id": "section_1",
+          "order": 1,
+          "source_label": "기본금리",
+          "source_text": "기본금리 연 3.20%",
+          "translated_label": "Base Interest Rate",
+          "translated_text": "3.20% p.a."
+        }
+      ],
+      "full_text": ""
+    }
+  ]
 }
 ```
 

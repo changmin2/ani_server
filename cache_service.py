@@ -49,6 +49,15 @@ def set_cache(key, value, ttl_seconds=DEFAULT_TTL_SECONDS):
     )
 
 
+def clear_cache():
+    # 메모리에 쌓인 캐시(동일 요청 재사용분)를 전부 비운다.
+    # 비운 항목 수를 반환해 호출 측에서 확인할 수 있게 한다.
+    cleared = len(_cache)
+    _cache.clear()
+
+    return cleared
+
+
 def get_or_set_cache(key, factory, ttl_seconds=DEFAULT_TTL_SECONDS):
     cached_value = get_cache(key)
 

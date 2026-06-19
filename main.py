@@ -5,7 +5,7 @@ import tempfile
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from cache_service import get_or_set_cache, make_cache_key, normalize_text
+from cache_service import clear_cache, get_or_set_cache, make_cache_key, normalize_text
 from file_reader import extract_text
 
 from search_service import (
@@ -438,6 +438,15 @@ async def translate_document_layout(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/cache/clear")
+def clear_server_cache():
+    # 서버 재시작 없이 메모리 캐시(동일 요청 재사용분)를 비운다.
+    # 프롬프트/로직 수정 후 같은 원문으로 다시 테스트할 때 사용한다.
+    cleared = clear_cache()
+
+    return {"cleared": cleared}
 
 
 if __name__ == "__main__":

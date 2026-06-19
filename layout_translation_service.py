@@ -1,6 +1,8 @@
+import io
 import os
 
 import fitz
+from PIL import Image
 
 from azure_translator import translate_texts
 
@@ -144,11 +146,41 @@ def translate_pdf_layout(pdf_bytes, target_code):
         doc.close()
 
 
-def render_translated_page_png(pdf_bytes, target_code, page_index=0, dpi=150):
+def _fit_canvas_image(pixmap, canvas_w, canvas_h):
+    """렌더된 페이지를 target 규격 캔버스에 비율 유지로 넣은 PIL 이미지(여백 흰색)를 돌려준다."""
+    source = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+
+    scale = min(canvas_w / source.width, canvas_h / source.height)
+    new_w = max(1, int(source.width * scale))
+    new_h = max(1, int(source.height * scale))
+    resized = source.resize((new_w, new_h), Image.LANCZOS)
+
+    canvas = Image.new("RGB", (canvas_w, canvas_h), "white")
+    canvas.paste(resized, ((canvas_w - new_w) // 2, (canvas_h - new_h) // 2))
+
+    return canvas
+
+
+def _fit_on_canvas(pixmap, canvas_w, canvas_h):
+    """_fit_canvas_image 결과를 PNG 바이트로."""
+    buffer = io.BytesIO()
+    _fit_canvas_image(pixmap, canvas_w, canvas_h).save(buffer, format="PNG")
+
+    return buffer.getvalue()
+
+
+def render_translated_page_png(
+    pdf_bytes,
+    target_code,
+    page_index=0,
+    dpi=150,
+    canvas_w=None,
+    canvas_h=None,
+):
     """PDF의 특정 페이지(기본 첫 페이지)만 번역해 PNG 이미지 바이트로 렌더한다.
 
-    5페이지 '디자인 적용 미리보기'에서 원본 첫 페이지에 번역문이 같은 위치/색/폰트로
-    들어간 모습을 보여주기 위한 용도. 미리보기라 한 페이지만 처리해 빠르게 응답한다.
+    canvas_w/canvas_h가 주어지면 그 규격 캔버스에 비율 유지로 맞추고(여백은 흰색),
+    없으면 원본 페이지 크기 그대로 렌더한다.
     """
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     fontname, fontfile = _resolve_font(target_code)
@@ -163,7 +195,53 @@ def render_translated_page_png(pdf_bytes, target_code, page_index=0, dpi=150):
 
         pixmap = page.get_pixmap(dpi=dpi)
 
+        if canvas_w and canvas_h:
+            return _fit_on_canvas(pixmap, int(canvas_w), int(canvas_h))
+
         return pixmap.tobytes("png")
+
+    finally:
+        doc.close()
+
+
+def render_translated_pages_combined_png(
+    pdf_bytes,
+    target_code,
+    canvas_w,
+    canvas_h,
+    dpi=150,
+    gap=24,
+):
+    """PDF 전체 페이지를 번역 후 각 규격 캔버스에 맞추고, 세로로 이어붙인 PNG 한 장으로 반환한다."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    fontname, fontfile = _resolve_font(target_code)
+    measure_font = _build_font(fontname, fontfile)
+
+    try:
+        canvas_w = int(canvas_w)
+        canvas_h = int(canvas_h)
+        page_images = []
+
+        for page in doc:
+            _translate_page(page, target_code, fontname, fontfile, measure_font)
+            pixmap = page.get_pixmap(dpi=dpi)
+            page_images.append(_fit_canvas_image(pixmap, canvas_w, canvas_h))
+
+        if not page_images:
+            raise ValueError("PDF에 페이지가 없습니다.")
+
+        total_h = canvas_h * len(page_images) + gap * (len(page_images) - 1)
+        combined = Image.new("RGB", (canvas_w, total_h), "white")
+
+        offset_y = 0
+        for image in page_images:
+            combined.paste(image, (0, offset_y))
+            offset_y += canvas_h + gap
+
+        buffer = io.BytesIO()
+        combined.save(buffer, format="PNG")
+
+        return buffer.getvalue()
 
     finally:
         doc.close()

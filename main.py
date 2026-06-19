@@ -19,7 +19,11 @@ from openai_service import (
 )
 from translation_service import translate_document, get_language_code
 from validation_agent import call_gpt_41_model, call_validation_agent
-from layout_translation_service import translate_pdf_layout, render_translated_page_png
+from layout_translation_service import (
+    translate_pdf_layout,
+    render_translated_page_png,
+    render_translated_pages_combined_png,
+)
 from typing import Optional
 import os
 from fastapi.middleware.cors import CORSMiddleware
@@ -445,8 +449,13 @@ async def translate_document_layout_preview(
     file: UploadFile = File(...),
     target_language: str = Form("en"),
     page: int = Form(0),
+    width: int = Form(0),
+    height: int = Form(0),
 ):
-    """[프로토타입] PDF 첫 페이지를 번역해 PNG 이미지로 돌려준다. (5페이지 미리보기용)"""
+    """[프로토타입] PDF 첫 페이지를 번역해 PNG로 돌려준다. (5페이지 미리보기용)
+
+    width/height를 주면 그 규격 캔버스에 비율 유지로 맞춰(여백 흰색) 렌더한다.
+    """
     try:
         filename = file.filename or ""
 
@@ -461,6 +470,45 @@ async def translate_document_layout_preview(
             contents,
             target_code,
             page,
+            150,
+            width or None,
+            height or None,
+        )
+
+        return Response(content=png_bytes, media_type="image/png")
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/documents/translate-layout/images")
+async def translate_document_layout_images(
+    file: UploadFile = File(...),
+    target_language: str = Form("en"),
+    width: int = Form(1080),
+    height: int = Form(1920),
+):
+    """[프로토타입] PDF 전체 페이지를 규격(width×height)으로 변환해 세로로 이어붙인 PNG 한 장."""
+    try:
+        filename = file.filename or ""
+
+        if not filename.lower().endswith(".pdf"):
+            raise ValueError("현재 이미지 변환은 PDF 파일만 지원합니다.")
+
+        contents = await file.read()
+        target_code = get_language_code(target_language)
+
+        png_bytes = await run_in_threadpool(
+            render_translated_pages_combined_png,
+            contents,
+            target_code,
+            width,
+            height,
         )
 
         return Response(content=png_bytes, media_type="image/png")

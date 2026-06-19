@@ -14,8 +14,7 @@ load_dotenv()
 
 validation_input = {
     "documentType": "금융상품 안내문",
-    "targetLanguage": "English",
-    "country": "Vietnam",
+    "targetLanguage": "en",
     "sourceText": "우대금리는 최대 연 0.50%p 제공됩니다.",
     "translatedText": "Special interest rate available.",
     "keyInformation": [
@@ -147,7 +146,7 @@ def build_validation_prompt(payload):
 검수 기준:
 - sourceText에 있는 핵심 수치, 금리, 기간, 한도, 수수료, 법적/주의 문구가 translatedText에 보존되었는지 확인한다.
 - keyInformation에 있는 label/sourceValue는 반드시 번역문에 의미가 반영되어야 한다.
-- targetLanguage와 country를 고려해 자연스러운 표현인지 확인한다.
+- targetLanguage 언어 코드(en, vi, zh, ja, kk 등)를 고려해 자연스러운 표현인지 확인한다.
 - 원문에 없는 내용을 새로 만들어냈는지 확인한다.
 - 반드시 JSON 객체만 응답한다. markdown code block은 쓰지 않는다.
 
@@ -156,18 +155,25 @@ def build_validation_prompt(payload):
 
 반환 형식:
 {{
-  "is_valid": false,
-  "score": 0.0,
-  "summary": "",
+  "summary": {{
+    "normal": 0,
+    "warning": 0,
+    "error": 0,
+    "review": 0
+  }},
   "issues": [
     {{
       "type": "missing_key_information",
-      "severity": "high",
+      "status": "error",
       "label": "우대금리",
       "source_value": "최대 연 0.50%p",
-      "message": ""
+      "translated_value": "",
+      "message": "",
+      "recommendation": ""
     }}
   ],
+  "is_valid": false,
+  "score": 0.0,
   "recommended_translation": ""
 }}
 """

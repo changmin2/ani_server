@@ -71,12 +71,15 @@ class ValidationKeyInformation(BaseModel):
     sourceValue: str
 
 
+class ValidationTranslationInput(BaseModel):
+    targetLanguage: str
+    translatedText: str
+
+
 class ValidationAgentRequest(BaseModel):
     documentType: str = "금융상품 안내문"
-    targetLanguage: str = "English"
-    country: str = "Vietnam"
     sourceText: str = "우대금리는 최대 연 0.50%p 제공됩니다."
-    translatedText: str = "Special interest rate available."
+    translations: list[ValidationTranslationInput] = Field(default_factory=list)
     keyInformation: list[ValidationKeyInformation] = Field(
         default_factory=lambda: [
             ValidationKeyInformation(
@@ -301,15 +304,69 @@ def translate_document_from_analysis(req: DocumentTranslateRequest):
 @app.post("/documents/validation")
 async def validate_translation_with_agent(req: ValidationAgentRequest):
     try:
-        payload = req.model_dump()
-        model_result = await run_in_threadpool(call_gpt_41_model, payload)
-        agent_result = await run_in_threadpool(call_validation_agent, payload)
+        source_text = req.sourceText.strip()
+        validation_items = []
 
-        return {
-            "input": payload,
-            "model_result": model_result,
-            "agent_result": agent_result
-        }
+        for item in req.translations:
+            target_language = get_language_code(item.targetLanguage.strip())
+            translated_text = item.translatedText.strip()
+
+            if not target_language or not translated_text:
+                continue
+
+            if any(
+                existing["targetLanguage"] == target_language
+                for existing in validation_items
+            ):
+                continue
+
+            validation_items.append({
+                "targetLanguage": target_language,
+                "translatedText": translated_text,
+                "translation": None,
+            })
+
+        if not source_text:
+            raise ValueError("sourceText must not be empty.")
+
+        if not validation_items:
+            raise ValueError("translations must not be empty.")
+
+        if len(validation_items) > 4:
+            raise ValueError("translations must include at most 4 languages.")
+
+        results = []
+
+        for item in validation_items:
+            validation_payload = {
+                "documentType": req.documentType,
+                "targetLanguage": item["targetLanguage"],
+                "sourceText": source_text,
+                "translatedText": item["translatedText"],
+                "keyInformation": [
+                    item.model_dump()
+                    for item in req.keyInformation
+                ],
+            }
+
+            validation_result = await run_in_threadpool(
+                call_validation_agent,
+                validation_payload,
+            )
+
+            if isinstance(validation_result, dict) and validation_result.get("skipped"):
+                validation_result = await run_in_threadpool(
+                    call_gpt_41_model,
+                    validation_payload,
+                )
+
+            results.append({
+                "targetLanguage": item["targetLanguage"],
+                "translatedText": item["translatedText"],
+                "validationResult": validation_result,
+            })
+
+        return {"results": results}
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

@@ -7,13 +7,24 @@ from openai_service import get_openai_client, get_required_env
 
 
 LANGUAGE_CODE_MAP = {
+    "en": "en",
     "영어": "en",
     "english": "en",
+    "zh": "zh",
     "중국어": "zh",
+    "chinese": "zh",
     "中文": "zh",
+    "vi": "vi",
     "베트남어": "vi",
+    "vietnamese": "vi",
     "tiếng việt": "vi",
+    "ja": "ja",
+    "jp": "ja",
+    "일본어": "ja",
+    "japanese": "ja",
+    "kk": "kk",
     "카자흐스탄어": "kk",
+    "kazakh": "kk",
     "қазақша": "kk",
 }
 

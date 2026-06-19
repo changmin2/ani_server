@@ -12,7 +12,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 TERMS_FILE = BASE_DIR / "bank_terms_vi.json"
 SEARCH_TEXT_FIELDS = ("term_ko", "term_en", "term_vi", "term_zh", "term_kk")
-LEGACY_DOCUMENT_IDS = ("1", "2", "3")
+BATCH_SIZE = 100
 
 
 def get_required_env(name):
@@ -95,37 +95,50 @@ def prepare_documents(documents):
     return documents
 
 
-def delete_legacy_documents(client):
-    legacy_documents = [
-        {"id": document_id}
-        for document_id in LEGACY_DOCUMENT_IDS
-    ]
+def delete_documents_batch(client, documents, label):
+    if not documents:
+        return 0
 
-    results = client.delete_documents(documents=legacy_documents)
+    results = client.delete_documents(documents=documents)
     success_count = sum(1 for item in results if item.succeeded)
 
-    print(f"기존 테스트 용어 삭제: {success_count}/{len(legacy_documents)}건")
+    print(f"{label}: {success_count}/{len(documents)}건")
+
+    return success_count
 
 
-def delete_obsolete_documents(client, original_documents, upload_documents):
-    upload_ids = {
-        document.get("id")
-        for document in upload_documents
-        if document.get("id")
-    }
-    obsolete_documents = [
-        {"id": document.get("id")}
-        for document in original_documents
-        if document.get("id") and document.get("id") not in upload_ids
+def delete_existing_documents(client):
+    # 새 bank_terms_vi.json을 단일 원천으로 사용하기 위해 기존 검색 인덱스 문서를 전부 삭제한다.
+    # search_text="*"로 id만 읽어온 뒤 배치 삭제하므로 JSON에 없는 과거 용어도 남지 않는다.
+    results = client.search(
+        search_text="*",
+        select=["id"],
+        top=1000
+    )
+    documents_to_delete = [
+        {"id": item["id"]}
+        for item in results
+        if item.get("id")
     ]
 
-    if not obsolete_documents:
-        return
+    if not documents_to_delete:
+        print("기존 인덱스 문서 없음")
+        return 0
 
-    results = client.delete_documents(documents=obsolete_documents)
-    success_count = sum(1 for item in results if item.succeeded)
+    print(f"기존 인덱스 문서 삭제 대상: {len(documents_to_delete)}건")
 
-    print(f"중복/불필요 용어 삭제: {success_count}/{len(obsolete_documents)}건")
+    deleted_count = 0
+
+    for start in range(0, len(documents_to_delete), BATCH_SIZE):
+        batch = documents_to_delete[start:start + BATCH_SIZE]
+        batch_number = start // BATCH_SIZE + 1
+        deleted_count += delete_documents_batch(
+            client,
+            batch,
+            f"기존 인덱스 문서 삭제 배치 {batch_number}"
+        )
+
+    return deleted_count
 
 
 def upload_documents():
@@ -137,11 +150,10 @@ def upload_documents():
         )
     )
 
-    delete_legacy_documents(client)
+    delete_existing_documents(client)
 
     original_documents = load_documents()
     documents = dedupe_documents(original_documents)
-    delete_obsolete_documents(client, original_documents, documents)
     documents = prepare_documents(documents)
     print(f"업로드 대상 용어 수: {len(documents)}")
 
